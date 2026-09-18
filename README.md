@@ -6,7 +6,7 @@
 
 A structured logging library for Go, built on top of `slog` with automatic log rotation, environment awareness, and flexible configuration.
 
-[中文文档](README_zh.md)
+[中文文档](README_zh.md) · [Changelog](CHANGELOG.md)
 
 ## Features
 

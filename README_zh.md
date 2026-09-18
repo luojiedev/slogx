@@ -6,7 +6,7 @@
 
 Slogx 是一个基于 Go 1.25+ 内置的 `slog` 包封装的结构化日志库。它提供了简单易用的接口，同时具备日志轮转、环境感知和灵活配置等特性。
 
-[English](README.md)
+[English](README.md) · [更新日志](CHANGELOG.md)
 
 ## 特性
 
