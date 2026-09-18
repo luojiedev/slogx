@@ -5,6 +5,24 @@
 
 ## [未发布]
 
+### 新增
+
+- **与 `context` 集成**：`ContextWithLogger(ctx, logger)` 与 `FromContext(ctx)`。
+  在调用链入口把带请求标识的 Logger 放进 context，下游直接取用，不必层层传 `*Logger`。
+  `FromContext` 在 context 中没有 Logger 时返回默认 Logger，**永远不会返回 nil**，
+  调用方无需判空；经它取出的 Logger，`source` 仍然指向真正的调用行。
+- **`Config.Writer io.Writer`**：额外的输出目标，与 `Filename`、`Stdout` 叠加。
+  此前输出目标写死为"文件 + 标准输出"，无法接入内存缓冲（写单测用）、syslog
+  或自定义 sink。
+- **`Format` 类型与常量** `FormatText` / `FormatJSON`。
+
+### 变更
+
+- `Config.Format` 的类型由 `string` 改为 `Format`（底层仍是 `string`）。
+  字面量写法 `Format: "json"` 依然可用，只有传 `string` 变量的代码需要转换类型。
+- `Format` 取值现在大小写不敏感并忽略首尾空格；无法识别的取值会回落到文本格式
+  **并在 stderr 打印提示**，此前会静默退化成文本格式，写错大小写都察觉不到。
+
 ## [0.2.1] - 2026-09-18
 
 本次为纯补丁版本，**无破坏性变更**，v0.2.0 可直接升级。

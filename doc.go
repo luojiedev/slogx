@@ -34,6 +34,20 @@
 //
 // source 的解析结果按调用点 PC 缓存，因此该特性几乎不带来额外的内存分配。
 //
+// # 与 context 配合
+//
+// 在调用链入口（如 HTTP 中间件）把带请求标识的 Logger 放进 context，
+// 下游直接取用，不必层层传参：
+//
+//	ctx = slogx.ContextWithLogger(ctx, slogx.With("trace_id", traceID))
+//	// ...
+//	slogx.FromContext(ctx).Info("处理完成", "cost", cost)
+//
+// FromContext 在 context 中没有 Logger 时返回默认 Logger，因此永远不会返回 nil，
+// 调用方无需判空。需要逐层追加字段时，把追加后的 Logger 重新放回 context：
+//
+//	ctx = slogx.ContextWithLogger(ctx, slogx.FromContext(ctx).With("handler", name))
+//
 // # 配置
 //
 // 全局 Logger 读取以下环境变量：
@@ -45,7 +59,10 @@
 //	GO_ENV           production 或 prod 表示生产环境：只写文件并压缩旧文件
 //
 // 取值非法时回落到默认值，并在标准错误输出一条提示。
-// 需要自定义配置时使用 NewLogger 与 Config。
+// 需要自定义配置时使用 NewLogger 与 Config。输出目标可以叠加：Config.Filename
+// （日志文件）、Config.Stdout（标准输出）和 Config.Writer（任意 io.Writer，
+// 可用于接入内存缓冲、syslog 等），三者都未配置时回落到标准输出。
+// 输出格式用 FormatText（默认）或 FormatJSON 指定。
 //
 // # 运行时调级
 //

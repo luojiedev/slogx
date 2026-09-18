@@ -15,6 +15,16 @@ func logSomething() {
 	log.Info("User logged in", "userId", 123, "ip", "192.168.1.1")
 }
 
+// handleRequest 演示从 context 取 Logger：不必层层传参，且 context 中没有时
+// FromContext 会回落到默认 Logger，无需判空。
+func handleRequest(ctx context.Context) {
+	log.FromContext(ctx).Info("handling request", "path", "/api/users")
+
+	// 下游再叠加一层字段，重新放回 context
+	ctx = log.ContextWithLogger(ctx, log.FromContext(ctx).With("handler", "user"))
+	log.FromContext(ctx).Debug("query finished", "rows", 3)
+}
+
 // wrapped 演示 WithCallerSkip：日志里的 source 会指向 wrapped 的调用方，
 // 而不是 wrapped 函数本身。
 func wrapped(logger *log.Logger, msg string) {
@@ -48,6 +58,10 @@ func main() {
 	// 带 context 的版本
 	log.InfoContext(context.Background(), "With context")
 
+	// 把带请求标识的 Logger 放进 context，下游直接取用，不必层层传参
+	ctx := log.ContextWithLogger(context.Background(), log.With("trace_id", "abc123"))
+	handleRequest(ctx)
+
 	// 测试不同级别的日志
 	log.Debug("Debug level message")
 	log.Info("Info level message")
@@ -67,7 +81,7 @@ func main() {
 	// 通过 Logger 实例也能获取和设置等级
 	logger2 := log.NewLogger(log.Config{
 		Level:    slog.LevelWarn,
-		Format:   "text",
+		Format:   log.FormatText,
 		Filename: "",
 		Stdout:   true,
 	})

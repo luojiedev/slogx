@@ -98,13 +98,14 @@ func main() {
 ```go
 logger := slogx.NewLogger(slogx.Config{
     Level:      slog.LevelDebug, // 类型是 slog.Level，不是字符串
-    Format:     "json",
+    Format:     slogx.FormatJSON, // 或 slogx.FormatText（默认）
     Filename:   "custom.log",
     MaxSize:    100,    // MB
     MaxBackups: 10,     // 文件个数
     MaxAge:     7,      // 天数
     Compress:   true,   // 是否压缩
     Stdout:     true,   // 是否输出到控制台
+    Writer:     &buf,   // 可选的额外 io.Writer
 })
 
 // 设置为默认logger（可选）
@@ -114,7 +115,31 @@ slogx.SetDefaultLogger(logger)
 defer logger.Close()
 ```
 
+三个输出目标可以叠加：`Filename`（文件）、`Stdout`（标准输出）和 `Writer`
+（任意 `io.Writer`，可用于写单测的内存缓冲、syslog 或自定义 sink）。三者都未配置时
+回落到标准输出。
+
 若日志目录无法创建，Logger 会降级为仅输出到标准输出并在 stderr 打印提示，而不会 panic。
+`Format` 取值无法识别时会回落到文本格式并打印提示，而不是静默退化。
+
+## 与 context 配合
+
+在调用链入口把带请求标识的 Logger 放进 context，下游直接取用，不必层层传 `*Logger`：
+
+```go
+// 在中间件里
+ctx = slogx.ContextWithLogger(ctx, slogx.With("trace_id", traceID))
+
+// 在下游任意位置
+slogx.FromContext(ctx).Info("请求处理完成", "cost", cost)
+```
+
+`FromContext` 在 context 中没有 Logger 时返回默认 Logger，因此**永远不会返回 nil**，
+调用方无需判空。需要逐层追加字段时，把追加后的 Logger 重新放回 context：
+
+```go
+ctx = slogx.ContextWithLogger(ctx, slogx.FromContext(ctx).With("handler", name))
+```
 
 ## 调用位置（source）
 

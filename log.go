@@ -210,16 +210,30 @@ func Close() error {
 	return GetDefaultLogger().Close()
 }
 
-// Config 定义日志库的配置
+// Format 是日志的输出格式。
+type Format string
+
+const (
+	// FormatText 以 key=value 的文本形式输出，是零值也是默认值。
+	FormatText Format = "text"
+	// FormatJSON 以 JSON 对象的形式输出。
+	FormatJSON Format = "json"
+)
+
+// Config 定义日志库的配置。
+//
+// 三个输出目标可以叠加：Filename（日志文件）、Stdout（标准输出）、Writer（自定义）。
+// 三者都未配置时回落到标准输出。
 type Config struct {
 	Level      slog.Level // 日志级别，如 slog.LevelDebug
-	Format     string     // 输出格式: json, text
+	Format     Format     // 输出格式，FormatText（默认）或 FormatJSON
 	Filename   string     // 日志文件路径，为空表示不写文件
 	MaxSize    int        // 每个日志文件的最大兆字节数 (MB)
 	MaxBackups int        // 保留的旧日志文件的最大数量
 	MaxAge     int        // 保留旧日志文件的最大天数
 	Compress   bool       // 是否压缩旧日志文件
 	Stdout     bool       // 是否同时输出到标准输出
+	Writer     io.Writer  // 额外的输出目标，与上面两者叠加；为 nil 表示不启用
 }
 
 // Logger 是我们封装的日志器
@@ -438,6 +452,42 @@ func (h sourceHandler) WithGroup(name string) slog.Handler {
 	return sourceHandler{Handler: h.Handler.WithGroup(name)}
 }
 
+// loggerContextKey 是 Logger 在 context 中的键。用私有的空结构体类型作为键，
+// 避免与其他包的 context 键冲突。
+type loggerContextKey struct{}
+
+// ContextWithLogger 返回一个携带 logger 的新 context，供调用链下游取用。
+// 典型用法是在中间件里把带请求标识的 Logger 放进 context：
+//
+//	ctx = slogx.ContextWithLogger(ctx, slogx.With("trace_id", traceID))
+//
+// logger 为 nil 时原样返回 ctx。
+func ContextWithLogger(ctx context.Context, logger *Logger) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if logger == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, loggerContextKey{}, logger)
+}
+
+// FromContext 取出 ctx 中由 ContextWithLogger 存入的 Logger。
+// ctx 中没有（或 ctx 为 nil）时返回默认 Logger，因此返回值永远不为 nil，
+// 调用方无需判空：
+//
+//	slogx.FromContext(ctx).Info("处理完成", "cost", cost)
+//
+// 返回的 Logger 与直接使用的 Logger 行为一致，source 仍然指向真正的调用行。
+func FromContext(ctx context.Context) *Logger {
+	if ctx != nil {
+		if logger, ok := ctx.Value(loggerContextKey{}).(*Logger); ok && logger != nil {
+			return logger
+		}
+	}
+	return GetDefaultLogger()
+}
+
 // WithField 基于默认 Logger 创建一个带单个字段的原生 *slog.Logger。
 //
 // Deprecated: 推荐使用 With，它返回 *Logger，接口更完整。
@@ -452,7 +502,7 @@ const timeFormat = "2006-01-02 15:04:05.000000"
 // newHandler 按格式构造 slog.Handler。
 // AddSource 保持关闭：调用位置由 log/logAttrs 以 source 属性形式追加，
 // 这样 source 的解析可以走 PC 缓存，且位置固定在属性末尾。
-func newHandler(format string, w io.Writer, level slog.Leveler) slog.Handler {
+func newHandler(format Format, w io.Writer, level slog.Leveler) slog.Handler {
 	opts := &slog.HandlerOptions{
 		AddSource: false,
 		Level:     level,
@@ -467,10 +517,16 @@ func newHandler(format string, w io.Writer, level slog.Leveler) slog.Handler {
 		},
 	}
 
-	if format == "json" {
+	switch Format(strings.ToLower(strings.TrimSpace(string(format)))) {
+	case FormatJSON:
 		return slog.NewJSONHandler(w, opts)
+	case FormatText, "":
+		return slog.NewTextHandler(w, opts)
+	default:
+		// 此前未知格式会静默退化成 text，写错大小写都察觉不到。
+		fmt.Fprintf(os.Stderr, "slogx: 未知的日志格式 %q，回落到 %q\n", format, FormatText)
+		return slog.NewTextHandler(w, opts)
 	}
-	return slog.NewTextHandler(w, opts)
 }
 
 // NewLogger 初始化并返回一个 Logger 实例
@@ -503,6 +559,11 @@ func NewLogger(cfg Config) *Logger {
 	// 是否同时输出到标准输出
 	if cfg.Stdout {
 		writers = append(writers, os.Stdout)
+	}
+
+	// 额外的自定义输出目标
+	if cfg.Writer != nil {
+		writers = append(writers, cfg.Writer)
 	}
 
 	// 如果没有配置任何输出，则默认输出到标准输出

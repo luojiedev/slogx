@@ -9,15 +9,13 @@ import (
 )
 
 // discardLogger 构造一个写入 io.Discard 的 Logger，用于隔离出日志组装本身的开销。
-func discardLogger(level slog.Level, format string) *Logger {
-	lv := &slog.LevelVar{}
-	lv.Set(level)
-	handler := newHandler(format, io.Discard, lv)
-	return &Logger{Logger: slog.New(handler), handler: handler, level: lv}
+// 走公开的 Config.Writer，与使用者的真实路径一致。
+func discardLogger(level slog.Level, format Format) *Logger {
+	return NewLogger(Config{Level: level, Format: format, Writer: io.Discard})
 }
 
 func BenchmarkInfo(b *testing.B) {
-	logger := discardLogger(slog.LevelDebug, "text")
+	logger := discardLogger(slog.LevelDebug, FormatText)
 	b.ReportAllocs()
 	for b.Loop() {
 		logger.Info("a message", "userId", 123, "ip", "10.0.0.1")
@@ -25,7 +23,7 @@ func BenchmarkInfo(b *testing.B) {
 }
 
 func BenchmarkInfoJSON(b *testing.B) {
-	logger := discardLogger(slog.LevelDebug, "json")
+	logger := discardLogger(slog.LevelDebug, FormatJSON)
 	b.ReportAllocs()
 	for b.Loop() {
 		logger.Info("a message", "userId", 123, "ip", "10.0.0.1")
@@ -34,7 +32,7 @@ func BenchmarkInfoJSON(b *testing.B) {
 
 // BenchmarkLogAttrs 是分配开销最小的入口，不需要把参数装箱成 any。
 func BenchmarkLogAttrs(b *testing.B) {
-	logger := discardLogger(slog.LevelDebug, "text")
+	logger := discardLogger(slog.LevelDebug, FormatText)
 	ctx := context.Background()
 	b.ReportAllocs()
 	for b.Loop() {
@@ -46,7 +44,7 @@ func BenchmarkLogAttrs(b *testing.B) {
 // BenchmarkDisabledDebug 验证被级别过滤掉的日志几乎零开销：
 // 既不做栈回溯，也不组装记录。
 func BenchmarkDisabledDebug(b *testing.B) {
-	logger := discardLogger(slog.LevelError, "text")
+	logger := discardLogger(slog.LevelError, FormatText)
 	b.ReportAllocs()
 	for b.Loop() {
 		logger.Debug("a message", "userId", 123, "ip", "10.0.0.1")
@@ -54,7 +52,7 @@ func BenchmarkDisabledDebug(b *testing.B) {
 }
 
 func BenchmarkWith(b *testing.B) {
-	logger := discardLogger(slog.LevelDebug, "text").With("module", "bench")
+	logger := discardLogger(slog.LevelDebug, FormatText).With("module", "bench")
 	b.ReportAllocs()
 	for b.Loop() {
 		logger.Info("a message", "userId", 123)
@@ -63,7 +61,7 @@ func BenchmarkWith(b *testing.B) {
 
 // BenchmarkRawSlog 是对照组：不带 source 的原生 slog，用于衡量 source 的成本。
 func BenchmarkRawSlog(b *testing.B) {
-	logger := discardLogger(slog.LevelDebug, "text")
+	logger := discardLogger(slog.LevelDebug, FormatText)
 	b.ReportAllocs()
 	for b.Loop() {
 		logger.Logger.Info("a message", "userId", 123, "ip", "10.0.0.1")
@@ -92,7 +90,7 @@ func BenchmarkResolveSource(b *testing.B) {
 }
 
 func BenchmarkConcurrentInfo(b *testing.B) {
-	logger := discardLogger(slog.LevelDebug, "text")
+	logger := discardLogger(slog.LevelDebug, FormatText)
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {

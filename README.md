@@ -97,13 +97,14 @@ Use `NewLogger` function for custom configuration:
 ```go
 logger := slogx.NewLogger(slogx.Config{
     Level:      slog.LevelDebug, // slog.Level, not a string
-    Format:     "json",
+    Format:     slogx.FormatJSON, // or slogx.FormatText (default)
     Filename:   "custom.log",
     MaxSize:    100,    // MB
     MaxBackups: 10,     // number of files
     MaxAge:     7,      // days
     Compress:   true,   // compress old files
     Stdout:     true,   // console output
+    Writer:     &buf,   // optional extra io.Writer
 })
 
 // Set as default logger (optional)
@@ -113,8 +114,34 @@ slogx.SetDefaultLogger(logger)
 defer logger.Close()
 ```
 
+The three output targets stack: `Filename`, `Stdout` and `Writer` (any `io.Writer` —
+an in-memory buffer for tests, syslog, a custom sink). With none of them set the logger
+falls back to stdout.
+
 If the log directory cannot be created, the logger falls back to stdout and prints a
-warning to stderr instead of panicking.
+warning to stderr instead of panicking. An unrecognised `Format` falls back to text and
+prints a warning rather than silently downgrading.
+
+## Context
+
+Put a request-scoped logger into the context at the entry point and read it downstream,
+instead of threading a `*Logger` through every call:
+
+```go
+// in your middleware
+ctx = slogx.ContextWithLogger(ctx, slogx.With("trace_id", traceID))
+
+// anywhere downstream
+slogx.FromContext(ctx).Info("request handled", "cost", cost)
+```
+
+`FromContext` returns the default logger when the context carries none, so it never
+returns nil and callers never need a nil check. To add fields as the call descends, put
+the derived logger back:
+
+```go
+ctx = slogx.ContextWithLogger(ctx, slogx.FromContext(ctx).With("handler", name))
+```
 
 ## Caller Location
 
