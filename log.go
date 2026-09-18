@@ -228,9 +228,9 @@ type Config struct {
 	Level      slog.Level // 日志级别，如 slog.LevelDebug
 	Format     Format     // 输出格式，FormatText（默认）或 FormatJSON
 	Filename   string     // 日志文件路径，为空表示不写文件
-	MaxSize    int        // 每个日志文件的最大兆字节数 (MB)
-	MaxBackups int        // 保留的旧日志文件的最大数量
-	MaxAge     int        // 保留旧日志文件的最大天数
+	MaxSize    int        // 每个日志文件的最大兆字节数 (MB)，<= 0 时用 DefaultMaxSize
+	MaxBackups int        // 保留的旧日志文件的最大数量，<= 0 时用 DefaultMaxBackups
+	MaxAge     int        // 保留旧日志文件的最大天数，<= 0 时用 DefaultMaxAge
 	Compress   bool       // 是否压缩旧日志文件
 	Stdout     bool       // 是否同时输出到标准输出
 	Writer     io.Writer  // 额外的输出目标，与上面两者叠加；为 nil 表示不启用
@@ -496,6 +496,23 @@ func WithField(key string, value any) *slog.Logger {
 	return slog.New(sourceHandler{Handler: origLogger.Handler()})
 }
 
+// withRotationDefaults 为未设置的轮转参数填入本库的默认值。
+//
+// 不填的话，零值会直接透传给 lumberjack，拿到的是它自己的默认值
+// （100MB、备份永不删除、不按天数清理），与本库文档声称的 50MB/100 个/30 天不符。
+func (c Config) withRotationDefaults() Config {
+	if c.MaxSize <= 0 {
+		c.MaxSize = DefaultMaxSize
+	}
+	if c.MaxBackups <= 0 {
+		c.MaxBackups = DefaultMaxBackups
+	}
+	if c.MaxAge <= 0 {
+		c.MaxAge = DefaultMaxAge
+	}
+	return c
+}
+
 // timeFormat 是日志中 time 字段的格式。
 const timeFormat = "2006-01-02 15:04:05.000000"
 
@@ -545,6 +562,7 @@ func NewLogger(cfg Config) *Logger {
 	}
 
 	if cfg.Filename != "" {
+		cfg = cfg.withRotationDefaults()
 		lumberjackLogger := &lumberjack.Logger{
 			Filename:   cfg.Filename,
 			MaxSize:    cfg.MaxSize,

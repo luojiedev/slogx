@@ -67,6 +67,9 @@ func main() {
 - 保留日志文件数：100
 - 日志保留天数：30天
 
+这些默认值对任何配置了 `Filename` 的 Logger 都生效，不只是全局 Logger：`Config` 中
+`MaxSize`、`MaxBackups`、`MaxAge` 留空（或为负）时都会回落到上述值。
+
 ### 环境变量配置
 
 可以通过以下环境变量调整配置：

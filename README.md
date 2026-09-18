@@ -66,6 +66,10 @@ func main() {
 - Number of backup files: 100
 - Log retention days: 30 days
 
+These apply to any logger with a `Filename`, not just the global one: `MaxSize`,
+`MaxBackups` and `MaxAge` left at zero (or negative) in `Config` fall back to the values
+above.
+
 ### Environment Variables
 
 Configure logging behavior through environment variables:

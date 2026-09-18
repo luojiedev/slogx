@@ -82,3 +82,31 @@ func TestFormatConstants(t *testing.T) {
 		})
 	}
 }
+
+// TestRotationDefaults 验证未设置的轮转参数会填入本库的默认值，
+// 而不是把零值透传给 lumberjack（那样拿到的是 100MB / 备份永不删 / 不按天清理）。
+func TestRotationDefaults(t *testing.T) {
+	got := Config{Filename: "app.log"}.withRotationDefaults()
+
+	if got.MaxSize != DefaultMaxSize {
+		t.Errorf("MaxSize = %d, 期望 %d", got.MaxSize, DefaultMaxSize)
+	}
+	if got.MaxBackups != DefaultMaxBackups {
+		t.Errorf("MaxBackups = %d, 期望 %d", got.MaxBackups, DefaultMaxBackups)
+	}
+	if got.MaxAge != DefaultMaxAge {
+		t.Errorf("MaxAge = %d, 期望 %d", got.MaxAge, DefaultMaxAge)
+	}
+
+	// 显式设置的值不被覆盖。
+	explicit := Config{MaxSize: 1, MaxBackups: 2, MaxAge: 3}.withRotationDefaults()
+	if explicit.MaxSize != 1 || explicit.MaxBackups != 2 || explicit.MaxAge != 3 {
+		t.Errorf("显式设置的值被覆盖: %+v", explicit)
+	}
+
+	// 负值同样按未设置处理。
+	negative := Config{MaxSize: -1, MaxBackups: -1, MaxAge: -1}.withRotationDefaults()
+	if negative.MaxSize != DefaultMaxSize || negative.MaxBackups != DefaultMaxBackups || negative.MaxAge != DefaultMaxAge {
+		t.Errorf("负值未按未设置处理: %+v", negative)
+	}
+}
