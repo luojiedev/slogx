@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.25'
+
+jobs:
+  # 在三个平台上真正跑一遍测试。Windows 这一格是为了拦住
+  # signal_windows.go 这类平台相关的编译失败。
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test -count=1 ./...
+
+      # 竞态检测只在 Unix 上跑：本库有 atomic.Pointer 保护的全局默认 Logger
+      # 和信号 goroutine，是竞态的高发点。Windows 上 -race 依赖额外的 C 工具链，
+      # 这里跳过，编译与功能已由上面的 Test 步骤覆盖。
+      - name: Test with race detector
+        if: runner.os != 'Windows'
+        run: go test -race -count=2 ./...
+
+  # 交叉编译到本库声明支持的所有平台。这一格能在合并前拦住
+  # “只在 Linux/macOS 上编译过” 的问题。
+  cross-build:
+    name: Cross build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      - name: Build and vet for each target
+        run: |
+          set -euo pipefail
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}"
+            echo "::group::$GOOS/$GOARCH"
+            GOOS="$GOOS" GOARCH="$GOARCH" go build ./...
+            GOOS="$GOOS" GOARCH="$GOARCH" go vet ./...
+            echo "::endgroup::"
+          done
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "以下文件未格式化，请运行 gofmt -w ："
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go mod tidy is clean
+        run: |
+          go mod tidy
+          if ! git diff --exit-code -- go.mod go.sum; then
+            echo "go.mod / go.sum 不是最新的，请运行 go mod tidy 后提交"
+            exit 1
+          fi
+
+      - name: staticcheck
+        uses: dominikh/staticcheck-action@v1
+        with:
+          version: latest
+          install-go: false

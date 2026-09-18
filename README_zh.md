@@ -1,5 +1,9 @@
 # Slogx
 
+[![CI](https://github.com/luojiedev/slogx/actions/workflows/ci.yml/badge.svg)](https://github.com/luojiedev/slogx/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/luojiedev/slogx.svg)](https://pkg.go.dev/github.com/luojiedev/slogx)
+[![Go Report Card](https://goreportcard.com/badge/github.com/luojiedev/slogx)](https://goreportcard.com/report/github.com/luojiedev/slogx)
+
 Slogx 是一个基于 Go 1.25+ 内置的 `slog` 包封装的结构化日志库。它提供了简单易用的接口，同时具备日志轮转、环境感知和灵活配置等特性。
 
 [English](README.md)

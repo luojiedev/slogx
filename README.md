@@ -1,5 +1,9 @@
 # Slogx
 
+[![CI](https://github.com/luojiedev/slogx/actions/workflows/ci.yml/badge.svg)](https://github.com/luojiedev/slogx/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/luojiedev/slogx.svg)](https://pkg.go.dev/github.com/luojiedev/slogx)
+[![Go Report Card](https://goreportcard.com/badge/github.com/luojiedev/slogx)](https://goreportcard.com/report/github.com/luojiedev/slogx)
+
 A structured logging library for Go, built on top of `slog` with automatic log rotation, environment awareness, and flexible configuration.
 
 [中文文档](README_zh.md)
