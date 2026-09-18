@@ -16,7 +16,11 @@ concurrency:
 
 env:
   GO_VERSION: '1.25'
-  STATICCHECK_VERSION: '2026.2.1'
+  # staticcheck 的 go.mod 要求必须 <= GO_VERSION：setup-go 会设置
+  # GOTOOLCHAIN=local，Go 不会为了装它而自动下载更新的工具链。
+  # 2026.1 (v0.7.0) 要求 go 1.25.0；下一个版本 2026.2 已要求 go 1.26.0，
+  # 升级它之前需要先升 GO_VERSION。
+  STATICCHECK_VERSION: '2026.1'
 
 jobs:
   # 在三个平台上真正跑一遍测试。Windows 这一格是为了拦住
