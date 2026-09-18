@@ -5,6 +5,11 @@
 
 ## [未发布]
 
+## [0.3.0] - 2026-09-18
+
+本次新增了与 `context` 的集成、自定义输出目标和 `Format` 类型常量。
+**无破坏性 API 变更，但有一处行为变更**（见「变更」一节的轮转默认值）。
+
 ### 新增
 
 - **与 `context` 集成**：`ContextWithLogger(ctx, logger)` 与 `FromContext(ctx)`。
@@ -139,7 +144,8 @@
 
 - 模块由 `MyLog` 更名为 `Slogx`。
 
-[未发布]: https://github.com/luojiedev/slogx/compare/v0.2.1...HEAD
+[未发布]: https://github.com/luojiedev/slogx/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/luojiedev/slogx/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/luojiedev/slogx/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/luojiedev/slogx/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/luojiedev/slogx/compare/v0.1.5...v0.1.6
