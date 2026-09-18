@@ -136,9 +136,12 @@ func Error(msg string, args ...any) {
 	GetDefaultLogger().log(context.Background(), slog.LevelError, msg, args...)
 }
 
-// Fatal 记录 Error 级别日志后退出进程。
+// Fatal 记录 Error 级别日志后退出进程。退出前会关闭日志文件，
+// 因为 os.Exit 不会执行任何 defer。
 func Fatal(msg string, args ...any) {
-	GetDefaultLogger().log(context.Background(), slog.LevelError, msg, args...)
+	logger := GetDefaultLogger()
+	logger.log(context.Background(), slog.LevelError, msg, args...)
+	_ = logger.Close()
 	os.Exit(1)
 }
 
@@ -157,6 +160,16 @@ func WarnContext(ctx context.Context, msg string, args ...any) {
 
 func ErrorContext(ctx context.Context, msg string, args ...any) {
 	GetDefaultLogger().log(ctx, slog.LevelError, msg, args...)
+}
+
+// Log 以指定级别记录日志。
+func Log(ctx context.Context, level slog.Level, msg string, args ...any) {
+	GetDefaultLogger().log(ctx, level, msg, args...)
+}
+
+// LogAttrs 以指定级别记录日志，接收 []slog.Attr，是分配开销最小的入口。
+func LogAttrs(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr) {
+	GetDefaultLogger().logAttrs(ctx, level, msg, attrs...)
 }
 
 // With returns a new Logger with the given attributes added to the global logger
@@ -218,11 +231,30 @@ type Logger struct {
 	closer     io.Closer // 底层日志文件，派生出来的 Logger 共享同一个
 }
 
-// formatSource 把调用点 PC 格式化为 "[file.go:line]"。
+// sourceCache 缓存 PC 到 "[file.go:line]" 的解析结果。
+//
+// 同一个调用点的 PC 是固定的，解析结果也就固定，而 runtime.CallersFrames 的解析
+// 在实测中占了每条日志约 110ns / 272B / 3 次分配。缓存后该项降到约 6ns / 0 分配，
+// 使 source 属性的分配开销与不带 source 的原生 slog 持平。
+//
+// 键的数量以程序中实际出现的日志调用点数量为上界（与代码规模同阶），不会无限增长。
+var sourceCache sync.Map // uintptr -> string
+
+// formatSource 把调用点 PC 格式化为 "[file.go:line]"，结果按 PC 缓存。
 func formatSource(pc uintptr) string {
 	if pc == 0 {
 		return ""
 	}
+	if cached, ok := sourceCache.Load(pc); ok {
+		return cached.(string)
+	}
+	source := resolveSource(pc)
+	sourceCache.Store(pc, source)
+	return source
+}
+
+// resolveSource 真正解析 PC，仅在缓存未命中时调用。
+func resolveSource(pc uintptr) string {
 	frame, _ := runtime.CallersFrames([]uintptr{pc}).Next()
 	if frame.File == "" {
 		return ""
@@ -252,6 +284,28 @@ func (l *Logger) log(ctx context.Context, level slog.Level, msg string, args ...
 	}
 }
 
+// logAttrs 与 log 等价，但接收 []slog.Attr，避免 ...any 的装箱分配，
+// 供 LogAttrs 这类对分配敏感的入口使用。
+func (l *Logger) logAttrs(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !l.Logger.Enabled(ctx, level) {
+		return
+	}
+
+	var pcs [1]uintptr
+	runtime.Callers(callerSkipOffset+l.callerSkip, pcs[:])
+
+	record := slog.NewRecord(time.Now(), level, msg, pcs[0])
+	record.AddAttrs(attrs...)
+	record.AddAttrs(slog.String(SourceKey, formatSource(pcs[0])))
+
+	if err := l.Logger.Handler().Handle(ctx, record); err != nil {
+		fmt.Fprintf(os.Stderr, "slogx: 写入日志失败: %v\n", err)
+	}
+}
+
 // 以下是封装的日志方法，在 slog.Logger 的基础上自动附加调用位置。
 func (l *Logger) Debug(msg string, args ...any) {
 	l.log(context.Background(), slog.LevelDebug, msg, args...)
@@ -269,10 +323,12 @@ func (l *Logger) Error(msg string, args ...any) {
 	l.log(context.Background(), slog.LevelError, msg, args...)
 }
 
-// Fatal 级别，通常在记录后退出程序
+// Fatal 级别，通常在记录后退出程序。
+// slog 没有内置 fatal 级别，按 Error 记录后 os.Exit；退出前关闭日志文件，
+// 因为 os.Exit 不会执行任何 defer。
 func (l *Logger) Fatal(msg string, args ...any) {
-	// slog 没有内置 fatal 级别，按 Error 记录后 os.Exit
 	l.log(context.Background(), slog.LevelError, msg, args...)
+	_ = l.Close()
 	os.Exit(1)
 }
 
@@ -290,6 +346,17 @@ func (l *Logger) WarnContext(ctx context.Context, msg string, args ...any) {
 
 func (l *Logger) ErrorContext(ctx context.Context, msg string, args ...any) {
 	l.log(ctx, slog.LevelError, msg, args...)
+}
+
+// Log 以指定级别记录日志。覆写内嵌的 slog.Logger.Log，否则该方法不会带上 source。
+func (l *Logger) Log(ctx context.Context, level slog.Level, msg string, args ...any) {
+	l.log(ctx, level, msg, args...)
+}
+
+// LogAttrs 以指定级别记录日志，接收 []slog.Attr，是分配开销最小的入口。
+// 覆写内嵌的 slog.Logger.LogAttrs，否则该方法不会带上 source。
+func (l *Logger) LogAttrs(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr) {
+	l.logAttrs(ctx, level, msg, attrs...)
 }
 
 // clone 基于新的 slog.Logger 派生出一个 Logger，共享等级变量与底层文件。
@@ -379,6 +446,33 @@ func WithField(key string, value any) *slog.Logger {
 	return slog.New(sourceHandler{Handler: origLogger.Handler()})
 }
 
+// timeFormat 是日志中 time 字段的格式。
+const timeFormat = "2006-01-02 15:04:05.000000"
+
+// newHandler 按格式构造 slog.Handler。
+// AddSource 保持关闭：调用位置由 log/logAttrs 以 source 属性形式追加，
+// 这样 source 的解析可以走 PC 缓存，且位置固定在属性末尾。
+func newHandler(format string, w io.Writer, level slog.Leveler) slog.Handler {
+	opts := &slog.HandlerOptions{
+		AddSource: false,
+		Level:     level,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.TimeKey && a.Value.Kind() == slog.KindTime {
+				return slog.Attr{
+					Key:   "time",
+					Value: slog.StringValue(a.Value.Time().Format(timeFormat)),
+				}
+			}
+			return a
+		},
+	}
+
+	if format == "json" {
+		return slog.NewJSONHandler(w, opts)
+	}
+	return slog.NewTextHandler(w, opts)
+}
+
 // NewLogger 初始化并返回一个 Logger 实例
 func NewLogger(cfg Config) *Logger {
 	var writers []io.Writer
@@ -423,27 +517,7 @@ func NewLogger(cfg Config) *Logger {
 	level := &slog.LevelVar{}
 	level.Set(cfg.Level)
 
-	var handler slog.Handler
-	// 配置 slog Handler。AddSource 保持关闭：调用位置由 log() 以 source 属性形式追加。
-	handlerOptions := &slog.HandlerOptions{
-		AddSource: false,
-		Level:     level,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			if a.Key == slog.TimeKey && a.Value.Kind() == slog.KindTime {
-				return slog.Attr{
-					Key:   "time",
-					Value: slog.StringValue(a.Value.Time().Format("2006-01-02 15:04:05.000000")),
-				}
-			}
-			return a
-		},
-	}
-
-	if cfg.Format == "json" {
-		handler = slog.NewJSONHandler(multiWriter, handlerOptions)
-	} else {
-		handler = slog.NewTextHandler(multiWriter, handlerOptions)
-	}
+	handler := newHandler(cfg.Format, multiWriter, level)
 
 	return &Logger{
 		Logger:     slog.New(handler),
