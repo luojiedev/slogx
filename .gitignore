@@ -1,2 +1,9 @@
-examples/logs/main.log
-examples/logs/main.log.log
+# 运行时产生的日志
+logs/
+*.log
+*.log.gz
+
+# Go 构建与测试产物
+*.test
+*.out
+.cache/

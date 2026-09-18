@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 
 	log "github.com/luojiedev/slogx"
@@ -14,16 +15,38 @@ func logSomething() {
 	log.Info("User logged in", "userId", 123, "ip", "192.168.1.1")
 }
 
+// wrapped 演示 WithCallerSkip：日志里的 source 会指向 wrapped 的调用方，
+// 而不是 wrapped 函数本身。
+func wrapped(logger *log.Logger, msg string) {
+	logger.Info(msg)
+}
+
 func main() {
+	// 进程退出前关闭日志文件
+	defer log.Close()
+
 	// 直接调用包级别的函数
 	log.Info("Application started")
 
 	// 在不同的函数中调用
 	logSomething()
 
-	// 测试 With 功能
+	// 测试 With 功能（source 依然指向真正的调用行）
 	logger := log.With("module", "auth")
 	logger.Error("Authentication failed", "reason", "invalid_token")
+
+	// 嵌套 With 也不会让调用位置漂移
+	logger.With("sub", "token").Warn("Token about to expire", "ttl", 30)
+
+	// WithGroup 把后续字段归入一个分组
+	log.WithGroup("request").Info("Handled", "method", "GET", "status", 200)
+
+	// WithCallerSkip 供二次封装使用：跳过封装函数自身那一层
+	skipper := log.GetDefaultLogger().WithCallerSkip(1, "layer", "wrapper")
+	wrapped(skipper, "logged through a wrapper")
+
+	// 带 context 的版本
+	log.InfoContext(context.Background(), "With context")
 
 	// 测试不同级别的日志
 	log.Debug("Debug level message")
@@ -48,8 +71,15 @@ func main() {
 		Filename: "",
 		Stdout:   true,
 	})
+	defer logger2.Close()
+
 	log.Info("New logger level", "level", logger2.GetLevel())
 	logger2.SetLevel(slog.LevelError)
 	logger2.Warn("This warn message should NOT appear")
 	logger2.Error("This error message should still appear")
+
+	// 从环境变量解析等级
+	if level, err := log.ParseLevel("warn"); err == nil {
+		log.Info("Parsed level", "level", level)
+	}
 }
