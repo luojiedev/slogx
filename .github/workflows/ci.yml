@@ -48,6 +48,12 @@ jobs:
         if: runner.os != 'Windows'
         run: go test -race -count=2 ./...
 
+      # 只跑极少的迭代次数，目的是保证基准测试始终可编译可运行，
+      # 而不是在共享 runner 上测性能数字。
+      - name: Benchmarks (smoke)
+        if: runner.os == 'Linux'
+        run: go test -run '^$' -bench . -benchtime=10x ./...
+
   # 交叉编译到本库声明支持的所有平台。这一格能在合并前拦住
   # “只在 Linux/macOS 上编译过” 的问题。
   cross-build:

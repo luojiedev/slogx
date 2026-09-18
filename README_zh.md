@@ -169,6 +169,21 @@ kill -USR1 <pid>
 kill -USR2 <pid>
 ```
 
+## 性能
+
+`source` 的调用位置从记录的 PC 解析，并按调用点缓存，因此相比原生 `slog` 几乎不带来额外
+开销。被级别过滤掉的日志不会做栈回溯，也不会组装记录。
+
+```
+BenchmarkInfo           731 ns/op    40 B/op   2 allocs/op
+BenchmarkLogAttrs       726 ns/op    40 B/op   2 allocs/op
+BenchmarkRawSlog        756 ns/op    40 B/op   2 allocs/op   # 原生 slog，不带 source
+BenchmarkDisabledDebug  4.4 ns/op     0 B/op   0 allocs/op   # 被级别过滤掉
+```
+
+可用 `go test -bench . -benchmem` 自行测量。以上数据来自 Apple M 系列机器、输出到
+`io.Discard`，仅供横向对比，不代表绝对值。
+
 ## 依赖
 
 - Go 1.25+
